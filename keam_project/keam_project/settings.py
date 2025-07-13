@@ -5,7 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-)u_gztymqfpwpust8s$kf=$*25c@%)@gfo*9)s8g-s+$*#@3kh'
 DEBUG = True
 
-ALLOWED_HOSTS = ['keamscorelooker.pythonanywhere.com','127.0.0.1']
+ALLOWED_HOSTS = ['https://keamnormalizer.pythonanywhere.com/','127.0.0.1','keaaam1.in']
 
 
 
