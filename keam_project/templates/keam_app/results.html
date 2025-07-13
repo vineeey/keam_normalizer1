@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KEAM Results</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="theme-default">
+  <div class="theme-switcher">
+    <div class="theme-dropdown">
+      <button class="theme-btn">🎨 Themes</button>
+      <div class="theme-options">
+        <button onclick="setTheme('default')">Theme 1</button>
+        <button onclick="setTheme('ocean')">Theme 2</button>
+        <button onclick="setTheme('sunset')">Theme 3</button>
+        <button onclick="setTheme('matrix')">Theme 4</button>
+        <button onclick="setTheme('plain')">Theme 5</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    {% if errors %}
+      <div class="error-box">
+        <h3 style="margin-top: 0;">⚠️ Important Notes About Your Results</h3>
+        <ul style="margin-bottom: 0;">
+          {% for err in errors %}
+            <li>{{ err }}</li>
+          {% endfor %}
+        </ul>
+        <p style="margin-top: 10px; margin-bottom: 0; font-size: 0.9em;">
+          Some statistics were not available, so default values were used.
+          This may affect the accuracy of your normalized scores.
+        </p>
+      </div>
+    {% endif %}
+
+    {% if result %}
+      <div class="result-card">
+        <h2 style="margin-top: 0;">
+          {% if "kerala" in result.normalized.maths.board_name|lower %}
+            ✅ Your Kerala HSE Scores
+          {% else %}
+            ✅ Your BOARD SCORE Normalized TO KERALA HSE SCORE
+          {% endif %}
+        </h2>
+
+        <div class="chart-container">
+          <canvas id="scoreChart"></canvas>
+        </div>
+
+        <ul class="result-list">
+          <li><span>Maths:</span>
+            <span class="result-value">{{ result.normalized.maths.normalized_mark|floatformat:2 }}</span>
+            {% if not "kerala" in result.normalized.maths.board_name|lower %}
+              <span class="percentile">({{ result.normalized.maths.percentile|floatformat:2 }}%)</span>
+            {% endif %}
+          </li>
+          <li><span>Physics:</span>
+            <span class="result-value">{{ result.normalized.physics.normalized_mark|floatformat:2 }}</span>
+            {% if not "kerala" in result.normalized.physics.board_name|lower %}
+              <span class="percentile">({{ result.normalized.physics.percentile|floatformat:2 }}%)</span>
+            {% endif %}
+          </li>
+          <li><span>Chemistry:</span>
+            <span class="result-value">{{ result.normalized.chemistry.normalized_mark|floatformat:2 }}</span>
+            {% if not "kerala" in result.normalized.chemistry.board_name|lower %}
+              <span class="percentile">({{ result.normalized.chemistry.percentile|floatformat:2 }}%)</span>
+            {% endif %}
+          </li>
+          <li><span>Total {% if "kerala" in result.normalized.maths.board_name|lower %}Marks{% else %}Normalized{% endif %}:</span>
+            <span class="result-value">{{ result.total_normalized|floatformat:2 }}</span></li>
+          {% if result.original.entrance %}
+          <li><span>Entrance Score:</span> <span class="result-value">{{ result.original.entrance|floatformat:2 }}</span></li>
+          {% endif %}
+          <li><span>Final Score:</span> <span class="result-value">{{ result.final_score|floatformat:2 }}</span></li>
+        </ul>
+
+        <details>
+          <summary>📊 Show Detailed Calculation</summary>
+          <div style="margin-top: 15px;">
+            {% if "kerala" in result.normalized.maths.board_name|lower %}
+              <h4>🔹 Kerala HSE Marks (No Normalization Applied)</h4>
+              <p style="background: #333; padding: 10px; border-radius: 5px;">
+                For Kerala HSE students, original marks are used directly without normalization.
+              </p>
+            {% else %}
+              <h4>🔹 Normalization Process</h4>
+              <p style="background: #333; padding: 10px; border-radius: 5px;">
+                <strong>1. Scaled Mark = (Your Mark / Board Max) × Kerala Max</strong><br>
+                <strong>2. Z-score = (Scaled Mark - Board Mean) ÷ Board SD</strong><br>
+                <strong>3. Normalized Mark = Kerala Mean + (Z × Kerala SD)</strong><br>
+                <strong>4. Percentile = Normal CDF(Z) × 100</strong><br>
+                <strong>5. Final Mark = (Normalized Mark / Kerala Max) × 100</strong>
+              </p>
+            {% endif %}
+
+            <h4>📐 Subject-wise Details</h4>
+            <div style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                <thead>
+                  <tr style="background-color: #444; color: white;">
+                    <th style="padding: 8px; text-align: left;">Subject</th>
+                    <th style="padding: 8px; text-align: left;">Your Mark</th>
+                    <th style="padding: 8px; text-align: left;">Board Max</th>
+                    {% if not "kerala" in result.normalized.maths.board_name|lower %}
+                      <th style="padding: 8px; text-align: left;">Scaled Mark</th>
+                      <th style="padding: 8px; text-align: left;">Z-Score</th>
+                      <th style="padding: 8px; text-align: left;">Percentile</th>
+                    {% endif %}
+                    <th style="padding: 8px; text-align: left;">{% if "kerala" in result.normalized.maths.board_name|lower %}Final Mark{% else %}Normalized{% endif %}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for subject, data in result.normalized.items %}
+                  <tr style="border-bottom: 1px solid #555;">
+                    <td style="padding: 8px;">{{ subject|title }}</td>
+                    <td style="padding: 8px;">{{ data.student_mark|floatformat:2 }}</td>
+                    <td style="padding: 8px;">{{ data.max_mark_source|floatformat:0 }}</td>
+                    {% if not "kerala" in result.normalized.maths.board_name|lower %}
+                      <td style="padding: 8px;">{{ data.scaled_mark|floatformat:2 }}</td>
+                      <td style="padding: 8px;">{{ data.z_score|floatformat:2 }}</td>
+                      <td style="padding: 8px;">{{ data.percentile|floatformat:2 }}%</td>
+                    {% endif %}
+                    <td style="padding: 8px;">{{ data.normalized_mark|floatformat:2 }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <h4>🧮 Total Calculation</h4>
+            <p>
+              <strong>Total {% if "kerala" in result.normalized.maths.board_name|lower %}Marks{% else %}Normalized{% endif %} = Maths + Physics + Chemistry</strong><br>
+              = {{ result.normalized.maths.normalized_mark|floatformat:4 }} +
+                {{ result.normalized.physics.normalized_mark|floatformat:4 }} +
+                {{ result.normalized.chemistry.normalized_mark|floatformat:4 }}<br>
+              = <strong>{{ result.total_normalized|floatformat:4 }}</strong>
+            </p>
+
+            {% if result.original.entrance %}
+            <h4>🎯 Final Score</h4>
+            <p>
+              <strong>Final Score = (Total {% if "kerala" in result.normalized.maths.board_name|lower %}Marks{% else %}Normalized{% endif %} + Entrance Score)</strong><br>
+              = ({{ result.total_normalized|floatformat:4 }} + {{ result.original.entrance|floatformat:4 }})<br>
+              = <strong>{{ result.final_score|floatformat:4 }}</strong>
+            </p>
+            {% endif %}
+          </div>
+        </details>
+
+        <div style="margin-top: 20px;">
+          <a href="javascript:window.print()" class="button">🖨️ Download PDF</a>
+          <a href="{% url 'keam_app:marks_form' %}" class="button">← Back to Form</a>
+        </div>
+      </div>
+
+      <script>
+        document.addEventListener("DOMContentLoaded", () => {
+          const ctx = document.getElementById('scoreChart').getContext('2d');
+          new Chart(ctx, {
+            type: "bar",
+            data: {
+              labels: ["Maths", "Physics", "Chemistry"],
+              datasets: [{
+                label: "{% if 'kerala' in result.normalized.maths.board_name|lower %}Marks{% else %}Normalized Score{% endif %}",
+                data: [
+                  {{ result.normalized.maths.normalized_mark }},
+                  {{ result.normalized.physics.normalized_mark }},
+                  {{ result.normalized.chemistry.normalized_mark }}
+                ],
+                backgroundColor: ['#ffc75f', '#f9f871', '#f6b8b8'],
+                borderColor: ['#e8b04d', '#e5e562', '#e4a3a3'],
+                borderWidth: 1
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  max: 100,
+                  grid: {
+                    color: 'rgba(255,255,255,0.1)'
+                  },
+                  ticks: {
+                    color: '#ccc'
+                  }
+                },
+                x: {
+                  grid: {
+                    display: false
+                  },
+                  ticks: {
+                    color: '#ccc'
+                  }
+                }
+              },
+              plugins: {
+                legend: {
+                  display: false
+                },
+                tooltip: {
+                  backgroundColor: '#333',
+                  titleColor: '#ffd369',
+                  bodyColor: '#fff',
+                  borderColor: '#555',
+                  borderWidth: 1,
+                  callbacks: {
+                    label: function(context) {
+                      return `${context.dataset.label}: ${context.raw.toFixed(2)}`;
+                    }
+                  }
+                }
+              }
+            }
+          });
+        });
+      </script>
+     {% elif results %}
+      <div class="result-card">
+        <h2 style="margin-top: 0;">📂 Bulk KEAM Score Results</h2>
+        <div style="overflow-x: auto;">
+          {{ results|safe }}
+        </div>
+        <div style="margin-top: 20px;">
+          <a href="{% url 'keam_app:marks_form' %}" class="button">🔙 Back to Form</a>
+        </div>
+      </div>
+    {% else %}
+      <div class="result-card" style="text-align: center;">
+        <h3 style="margin-top: 0;">No results found</h3>
+        <p>Please enter your details to calculate your normalized score</p>
+        <a href="{% url 'keam_app:marks_form' %}" class="button">📝 Enter Marks</a>
+      </div>
+    {% endif %}
+  </div>
+</body>
+</html>
