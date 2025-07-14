@@ -35,27 +35,48 @@ def select_year(request):
 def get_db_subject_name(view_subject):
     return SUBJECT_NAME_MAPPING.get(view_subject.lower(), view_subject)
 
-def normalize_mark(x, mean_board, sd_board, mean_kerala, sd_kerala, max_mark_board=100, max_mark_kerala=100, board_name=None):
+
+import logging
+import numpy as np
+from django.shortcuts import render, redirect
+from .forms import MarkEntryForm
+from .models import Year, Board, SubjectStat
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import pandas as pd
+from scipy.stats import norm
+
+logger = logging.getLogger(__name__)
+
+SUBJECT_NAME_MAPPING = {
+    'maths': 'mathematics',
+    'physics': 'physics',
+    'chemistry': 'chemistry'
+}
+
+
+def intro(request):
+    years = Year.objects.all().order_by('-value')
+    return render(request, 'keam_app/intro.html', {'years': years})
+
+
+def select_year(request):
+    if request.method == 'POST':
+        year_id = request.POST.get('year')
+        if year_id:
+            request.session['year_id'] = year_id
+            return redirect('keam_app:marks_form')
+    return redirect('keam_app:intro')
+
+
+def get_db_subject_name(view_subject):
+    return SUBJECT_NAME_MAPPING.get(view_subject.lower(), view_subject)
+
+
+def normalize_mark(x, mean_board, sd_board, mean_kerala, sd_kerala, max_mark_board=100, max_mark_kerala=100):
     """
     Normalize marks using KEAM method with max marks consideration
-    Skip normalization if board is Kerala HSE
     """
-    # If board is Kerala HSE, return original mark as normalized mark
-    if board_name and "kerala" in board_name.lower():
-        return {
-            "student_mark": x,
-            "scaled_mark": x,
-            "mean_source": mean_kerala,
-            "sd_source": sd_kerala,
-            "z_score": 0,
-            "mean_kerala": mean_kerala,
-            "sd_kerala": sd_kerala,
-            "normalized_mark": x,
-            "percentile": 50.0,
-            "max_mark_source": max_mark_board,
-            "max_mark_kerala": max_mark_kerala
-        }
-
     try:
         # Handle potential division by zero
         if sd_board <= 0:
@@ -98,6 +119,7 @@ def normalize_mark(x, mean_board, sd_board, mean_kerala, sd_kerala, max_mark_boa
             "error": str(e)
         }
 
+
 def result(request):
     """Handle mark submission and return normalized results"""
     if request.method != 'POST':
@@ -129,6 +151,9 @@ def result(request):
             'chemistry': form.cleaned_data['chemistry']
         }
 
+        # Check if board is Kerala HSE
+        is_kerala = "kerala" in board.name.lower()
+
         # Get or create Kerala board with default max_mark=120
         kerala_board, created = Board.objects.get_or_create(
             name="Kerala HSE",
@@ -156,48 +181,67 @@ def result(request):
                     'sd': 10.0,
                     'max_mark': kerala_board.max_mark
                 }
-                error_msgs.append(f"No Kerala HSE stats for {view_subject} - using default values")
+                if not is_kerala:  # Only show error if not Kerala board
+                    error_msgs.append(f"No Kerala HSE stats for {view_subject} - using default values")
 
-        # Normalize marks
+        # Process marks
         normalized = {}
         total_normalized = 0
 
         for view_subject, mark in marks.items():
             db_subject = get_db_subject_name(view_subject)
-            stat = SubjectStat.objects.filter(
-                board=board,
-                subject__iexact=db_subject
-            ).first()
 
-            if not stat:
-                error_msgs.append(f"No {board.name} stats for {view_subject} - using fallback values")
-                stat_data = {
-                    'mean': 70.0,
-                    'sd': 10.0,
-                    'max_mark': board.max_mark if hasattr(board, 'max_mark') else 100
+            if is_kerala:
+                # For Kerala board, use marks directly without normalization
+                norm_data = {
+                    "student_mark": mark,
+                    "scaled_mark": mark,
+                    "mean_source": kerala_stats[view_subject]['mean'],
+                    "sd_source": kerala_stats[view_subject]['sd'],
+                    "z_score": 0,
+                    "mean_kerala": kerala_stats[view_subject]['mean'],
+                    "sd_kerala": kerala_stats[view_subject]['sd'],
+                    "normalized_mark": mark,
+                    "percentile": 50.0,
+                    "max_mark_source": kerala_stats[view_subject]['max_mark'],
+                    "max_mark_kerala": kerala_stats[view_subject]['max_mark'],
+                    "board_name": board.name
                 }
             else:
-                stat_data = {
-                    'mean': stat.mean,
-                    'sd': stat.sd,
-                    'max_mark': stat.max_mark if hasattr(stat, 'max_mark') else board.max_mark
-                }
+                # For other boards, perform normalization
+                stat = SubjectStat.objects.filter(
+                    board=board,
+                    subject__iexact=db_subject
+                ).first()
 
-            norm_data = normalize_mark(
-                mark,
-                stat_data['mean'],
-                stat_data['sd'],
-                kerala_stats[view_subject]['mean'],
-                kerala_stats[view_subject]['sd'],
-                stat_data['max_mark'],
-                kerala_stats[view_subject]['max_mark'],
-                board.name
-            )
+                if not stat:
+                    error_msgs.append(f"No {board.name} stats for {view_subject} - using fallback values")
+                    stat_data = {
+                        'mean': 70.0,
+                        'sd': 10.0,
+                        'max_mark': board.max_mark if hasattr(board, 'max_mark') else 100
+                    }
+                else:
+                    stat_data = {
+                        'mean': stat.mean,
+                        'sd': stat.sd,
+                        'max_mark': stat.max_mark if hasattr(stat, 'max_mark') else board.max_mark
+                    }
+
+                norm_data = normalize_mark(
+                    mark,
+                    stat_data['mean'],
+                    stat_data['sd'],
+                    kerala_stats[view_subject]['mean'],
+                    kerala_stats[view_subject]['sd'],
+                    stat_data['max_mark'],
+                    kerala_stats[view_subject]['max_mark']
+                )
+                norm_data["board_name"] = board.name
 
             if 'error' in norm_data:
                 error_msgs.append(f"Normalization failed for {view_subject}: {norm_data['error']}")
 
-            norm_data["board_name"] = board.name
             normalized[view_subject] = norm_data
             total_normalized += norm_data["normalized_mark"]
 
@@ -208,7 +252,8 @@ def result(request):
             'normalized': normalized,
             'total_normalized': total_normalized,
             'final_score': final_score,
-            'original': {**marks, 'entrance': entrance}
+            'original': {**marks, 'entrance': entrance},
+            'is_kerala': is_kerala
         }
 
     except Exception as e:
@@ -217,6 +262,8 @@ def result(request):
 
     return render(request, 'keam_app/results.html', context)
 
+
+# ... [rest of the file remains the same] ...cd
 @csrf_exempt
 def upload_and_process(request):
     """Handle bulk mark uploads"""
